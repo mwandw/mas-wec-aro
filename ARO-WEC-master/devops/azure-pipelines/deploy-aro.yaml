@@ -1,0 +1,76 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Define Terraform variables
+  terraformWorkingDirectory: './deployment/terraform'
+  azureServiceConnection: 'YourAzureServiceConnectionName' # Replace with your service connection name
+  tfstateStorageAccount: 'YourStorageAccountName'          # Replace with your storage account name
+  tfstateContainer: 'terraform-state'                      # Replace with your container name
+  tfstateKey: 'terraform.tfstate'
+
+stages:
+- stage: TerraformValidate
+  displayName: 'Validate Terraform Files'
+  jobs:
+  - job: Validate
+    displayName: 'Terraform Validate'
+    steps:
+    - script: |
+        terraform validate
+      workingDirectory: $(terraformWorkingDirectory)
+
+- stage: TerraformInit
+  displayName: 'Initialize Terraform'
+  dependsOn: TerraformValidate
+  jobs:
+  - job: Init
+    displayName: 'Terraform Init'
+    steps:
+    - script: |
+        terraform init \
+          -backend-config="storage_account_name=$(tfstateStorageAccount)" \
+          -backend-config="container_name=$(tfstateContainer)" \
+          -backend-config="key=$(tfstateKey)" \
+          -backend-config="access_key=$(AZURE_STORAGE_KEY)"
+      workingDirectory: $(terraformWorkingDirectory)
+      env:
+        ARM_CLIENT_ID: $(servicePrincipalId)
+        ARM_CLIENT_SECRET: $(servicePrincipalKey)
+        ARM_SUBSCRIPTION_ID: $(subscriptionId)
+        ARM_TENANT_ID: $(tenantId)
+
+- stage: TerraformPlan
+  displayName: 'Plan Terraform Deployment'
+  dependsOn: TerraformInit
+  jobs:
+  - job: Plan
+    displayName: 'Terraform Plan'
+    steps:
+    - script: |
+        terraform plan -out=tfplan
+      workingDirectory: $(terraformWorkingDirectory)
+      env:
+        ARM_CLIENT_ID: $(servicePrincipalId)
+        ARM_CLIENT_SECRET: $(servicePrincipalKey)
+        ARM_SUBSCRIPTION_ID: $(subscriptionId)
+        ARM_TENANT_ID: $(tenantId)
+
+- stage: TerraformApply
+  displayName: 'Apply Terraform Deployment'
+  dependsOn: TerraformPlan
+  jobs:
+  - job: Apply
+    displayName: 'Terraform Apply'
+    steps:
+    - script: |
+        terraform apply -auto-approve tfplan
+      workingDirectory: $(terraformWorkingDirectory)
+      env:
+        ARM_CLIENT_ID: $(servicePrincipalId)
+        ARM_CLIENT_SECRET: $(servicePrincipalKey)
+        ARM_SUBSCRIPTION_ID: $(subscriptionId)
+        ARM_TENANT_ID: $(tenantId)
